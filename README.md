@@ -216,7 +216,7 @@ Failures:
   - Job where the failure occurred
   - Error messages (AssertionError, RFC violations, etc.)
 
-### analyze_ci_week.py Features
+### analyze_ci.py Features
 
 - Analyzes multiple builds over a time period (default: 7 days)
 - Calculates success/failure rates across builds
