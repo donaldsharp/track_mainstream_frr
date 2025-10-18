@@ -189,7 +189,8 @@ def analyze_builds(builds):
         "total": len(builds),
         "successful": 0,
         "failed": 0,
-        "combined_failures": defaultdict(int),  # "job - test_case" -> count
+        "combined_failures": defaultdict(int),  # "job - test_case" -> count (kept for backwards compat)
+        "test_failures": defaultdict(lambda: {"count": 0, "jobs": defaultdict(int)}),  # test_name -> {count, jobs: {job_name: count}}
         "hung_jobs": defaultdict(int),  # job_name -> count (jobs without test context)
         "error_types": defaultdict(int),  # error pattern -> count
         "builds_by_status": defaultdict(list),  # status -> [build_numbers]
@@ -218,6 +219,10 @@ def analyze_builds(builds):
             combined_key = f"{job_name} - {test_case}"
             stats["combined_failures"][combined_key] += 1
 
+            # NEW: Group by test name first
+            stats["test_failures"][test_case]["count"] += 1
+            stats["test_failures"][test_case]["jobs"][job_name] += 1
+
             # Track normalized job name to avoid double-counting
             jobs_with_test_failures_normalized.add(normalize_job_name(job_name))
 
@@ -239,6 +244,10 @@ def analyze_builds(builds):
             # Create combined key: "Job Name - Test Case"
             combined_key = f"{job_name} - {test_case}"
             stats["combined_failures"][combined_key] += 1
+
+            # NEW: Group by test name first
+            stats["test_failures"][test_case]["count"] += 1
+            stats["test_failures"][test_case]["jobs"][job_name] += 1
 
             # Track normalized job name to avoid double-counting
             jobs_with_test_failures_normalized.add(normalize_job_name(job_name))
@@ -263,6 +272,10 @@ def analyze_builds(builds):
                 if not already_tracked:
                     combined_key = f"{job_name} - (Job Failed)"
                     stats["combined_failures"][combined_key] += 1
+                    
+                    # NEW: Group by "(Job Failed)" test name
+                    stats["test_failures"]["(Job Failed)"]["count"] += 1
+                    stats["test_failures"]["(Job Failed)"]["jobs"][job_name] += 1
 
     return stats
 
@@ -289,29 +302,35 @@ def print_statistics(stats):
         print(f"\nSuccess Rate:          {success_rate:.1f}%")
 
     # Calculate total failure instances
-    if stats["combined_failures"]:
-        total_failure_instances = sum(stats["combined_failures"].values())
-        unique_failures = len(stats["combined_failures"])
+    if stats["test_failures"]:
+        total_failure_instances = sum(f["count"] for f in stats["test_failures"].values())
+        unique_failures = len(stats["test_failures"])
         print(f"\nTotal Failure Instances: {total_failure_instances}")
-        print(f"Unique Failure Types:    {unique_failures}")
+        print(f"Unique Test Types:       {unique_failures}")
         if stats["failed"] > 0:
             avg_failures_per_build = total_failure_instances / stats["failed"]
             print(f"Avg Failures per Failed Build: {avg_failures_per_build:.1f}")
 
-    # Combined test and job failures
-    if stats["combined_failures"]:
+    # Test failures grouped by test name
+    if stats["test_failures"]:
         print("\n" + "=" * 80)
-        print("TOP FAILURES (Job + Test, by frequency)")
+        print("TOP FAILURES (by test name, with affected systems)")
         print("=" * 80)
 
-        sorted_failures = sorted(
-            stats["combined_failures"].items(), key=lambda x: x[1], reverse=True
+        sorted_tests = sorted(
+            stats["test_failures"].items(), key=lambda x: x[1]["count"], reverse=True
         )
-        for i, (failure_name, count) in enumerate(sorted_failures[:20], 1):
+        for i, (test_name, test_data) in enumerate(sorted_tests[:20], 1):
+            count = test_data["count"]
             percentage = (count / stats["total"]) * 100
-            print(
-                f"{i:2d}. {failure_name:70s} - {count:3d} failures ({percentage:.1f}%)"
+            print(f"\n{i:2d}. {test_name} - {count} failures ({percentage:.1f}%)")
+            
+            # Sort jobs by frequency for this test
+            sorted_jobs = sorted(
+                test_data["jobs"].items(), key=lambda x: x[1], reverse=True
             )
+            for job_name, job_count in sorted_jobs:
+                print(f"    • {job_name} ({job_count}x)")
 
     # Hung jobs
     if stats["hung_jobs"]:
