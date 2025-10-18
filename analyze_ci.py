@@ -341,7 +341,7 @@ def print_statistics(stats):
             key=lambda x: (len(x[1]["builds"]), x[1]["count"]),
             reverse=True,
         )
-        for i, (test_name, test_data) in enumerate(sorted_tests[:20], 1):
+        for i, (test_name, test_data) in enumerate(sorted_tests[:50], 1):
             count = test_data["count"]
             num_builds_affected = len(test_data["builds"])
             percentage = (num_builds_affected / stats["total"]) * 100
