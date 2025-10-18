@@ -47,7 +47,7 @@ Check a failed build:
 
 ### Multi-Build Analysis
 
-Run `analyze_ci.py` with a build number and optional time period:
+Run `analyze_ci.py` with a build number and optional time period. The script will analyze builds from N days **before the specified build's completion time**, making it useful for historical analysis.
 
 ```bash
 ./analyze_ci.py <build_number> [days]
@@ -55,24 +55,25 @@ Run `analyze_ci.py` with a build number and optional time period:
 
 #### Examples
 
-Analyze the last 7 days (default):
+Analyze 7 days before build 9083 (default):
 ```bash
 ./analyze_ci.py 9083
 ```
 
-Analyze the last 14 days:
+Analyze 14 days before build 9083's completion:
 ```bash
 ./analyze_ci.py 9083 14
 ```
 
-Analyze the last 30 days:
+Analyze 7 days before build 9059's completion:
 ```bash
-./analyze_ci.py 9083 30
+./analyze_ci.py 9059 7
 ```
 
 This will:
-- Scan backwards from the specified build number
-- Analyze all builds from the specified time period (default: 7 days)
+- Fetch the specified build to determine its completion date
+- Scan backwards from that build
+- Analyze all builds within the specified time period before the reference build (default: 7 days)
 - Group failures by type
 - Generate statistics on:
   - Success/failure rates

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 Analyze CI builds over a time period and provide statistics on failures.
-Usage: ./analyze_ci.py <latest_build_number> [days]
+The script analyzes builds from N days before the specified build's completion time.
+
+Usage: ./analyze_ci.py <build_number> [days]
 Examples: 
-  ./analyze_ci.py 9083          # Analyze last 7 days (default)
-  ./analyze_ci.py 9083 14       # Analyze last 14 days
-  ./analyze_ci.py 9083 30       # Analyze last 30 days
+  ./analyze_ci.py 9083          # Analyze 7 days before build 9083's completion (default)
+  ./analyze_ci.py 9083 14       # Analyze 14 days before build 9083's completion
+  ./analyze_ci.py 9059 7        # Analyze 7 days before build 9059's completion
 """
 
 import sys
@@ -34,19 +36,51 @@ def download_page_safe(url):
 
 def get_builds_from_week(latest_build_num, days=7):
     """
-    Get build numbers from the past week.
+    Get build numbers from the past week relative to the specified build.
     We'll go backwards from latest_build_num and check dates.
     """
     builds = []
     current_num = latest_build_num
-    cutoff_date = datetime.now() - timedelta(days=days)
-
-    print(f"Analyzing builds from the past {days} days...")
-    print(f"Starting from build #{current_num}")
+    
+    print(f"Analyzing builds from {days} days before build #{current_num}...")
+    print(f"Fetching reference build #{current_num} to get completion time...")
     print()
 
-    # Go back up to 100 builds or until we hit the date cutoff
-    for i in range(100):
+    # First, fetch the reference build to get its completion date
+    reference_url = f"https://ci1.netdef.org/browse/FRR-FRR-{current_num}"
+    reference_date = None
+    
+    try:
+        html = download_page_safe(reference_url)
+        results = parse_build_status(html, reference_url)
+        
+        if results["completed_time"]:
+            # Parse date like "17 Oct 2025, 1:43:42 PM"
+            try:
+                date_str = results["completed_time"]
+                # Extract just the date part
+                date_match = re.match(r"(\d{1,2}\s+\w+\s+\d{4})", date_str)
+                if date_match:
+                    date_part = date_match.group(1)
+                    reference_date = datetime.strptime(date_part, "%d %b %Y")
+                    print(f"Reference build completed: {date_part}")
+            except Exception as e:
+                print(f"Warning: Could not parse reference date: {e}")
+    except Exception as e:
+        print(f"Error: Could not fetch reference build #{current_num}: {e}")
+        return builds
+    
+    if not reference_date:
+        print("Error: Could not determine reference build completion date")
+        return builds
+    
+    # Calculate cutoff date (days before the reference build)
+    cutoff_date = reference_date - timedelta(days=days)
+    print(f"Analyzing builds from {cutoff_date.strftime('%d %b %Y')} to {reference_date.strftime('%d %b %Y')}")
+    print()
+
+    # Go back up to 200 builds or until we hit the date cutoff
+    for i in range(200):
         build_num = current_num - i
         if build_num < 1:
             break
@@ -70,7 +104,7 @@ def get_builds_from_week(latest_build_num, days=7):
 
                         if build_date < cutoff_date:
                             print(
-                                f"Reached builds older than {days} days at #{build_num}"
+                                f"Reached builds older than cutoff date at #{build_num} ({date_part})"
                             )
                             break
                 except Exception as e:
@@ -390,11 +424,13 @@ def print_detailed_failures(builds):
 def main():
     """Main function."""
     if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print("Usage: ./analyze_ci.py <latest_build_number> [days]")
+        print("Usage: ./analyze_ci.py <build_number> [days]")
         print("Example: ./analyze_ci.py 9083")
-        print("         ./analyze_ci.py 9083 14  (analyze last 14 days)")
+        print("         ./analyze_ci.py 9083 14  (analyze 14 days before build 9083)")
+        print("         ./analyze_ci.py 9059 7   (analyze 7 days before build 9059)")
+        print("\nThe script analyzes builds from N days before the specified build's completion time.")
         print("\nOptional parameters:")
-        print("  days: Number of days to look back (default: 7)")
+        print("  days: Number of days to look back from the build (default: 7)")
         sys.exit(1)
 
     try:
