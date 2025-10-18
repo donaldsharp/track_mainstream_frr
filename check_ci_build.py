@@ -245,6 +245,12 @@ def parse_build_status(html_content, url):
                                     test_name
                                 )
 
+                            # Format case name as "suite.case" when both are available
+                            if suite_name and case_name:
+                                formatted_case = f"{suite_name}.{case_name}"
+                            else:
+                                formatted_case = case_name
+
                             # Try to get error message from next row or expanded content
                             error_msg = ""
                             next_row = row.find_next_sibling("tr")
@@ -272,7 +278,7 @@ def parse_build_status(html_content, url):
                                 {
                                     "test": test_name,
                                     "suite": suite_name,
-                                    "case": case_name,
+                                    "case": formatted_case,
                                     "job": job_name,
                                     "error": error_msg,
                                 }
@@ -341,6 +347,12 @@ def parse_build_status(html_content, url):
                                 ]:
                                     continue
 
+                                # Format case name as "suite.case" when both are available
+                                if suite_name and case_name:
+                                    formatted_case = f"{suite_name}.{case_name}"
+                                else:
+                                    formatted_case = case_name
+
                                 # Get job name - for existing failures it's in column 4
                                 job_name = ""
                                 job_col = (
@@ -371,7 +383,7 @@ def parse_build_status(html_content, url):
                                         {
                                             "test": test_name,
                                             "suite": suite_name,
-                                            "case": case_name,
+                                            "case": formatted_case,
                                             "job": job_name,
                                         }
                                     )
