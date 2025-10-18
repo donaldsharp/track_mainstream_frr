@@ -47,26 +47,36 @@ Check a failed build:
 
 ### Weekly Build Analysis
 
-Run `analyze_ci_week.py` with a build number to analyze the past week of builds:
+Run `analyze_ci_week.py` with a build number and optional time period:
 
 ```bash
-./analyze_ci_week.py <build_number>
+./analyze_ci_week.py <build_number> [days]
 ```
 
 #### Examples
 
-Analyze the week leading up to build 9083:
+Analyze the last 7 days (default):
 ```bash
 ./analyze_ci_week.py 9083
 ```
 
+Analyze the last 14 days:
+```bash
+./analyze_ci_week.py 9083 14
+```
+
+Analyze the last 30 days:
+```bash
+./analyze_ci_week.py 9083 30
+```
+
 This will:
-- Scan backwards from build #9083
-- Analyze all builds from the past 7 days
+- Scan backwards from the specified build number
+- Analyze all builds from the specified time period (default: 7 days)
 - Group failures by type
 - Generate statistics on:
   - Success/failure rates
-  - Most common test failures
+  - Most common test failures (combined with job context)
   - Most common job failures  
   - Hung/timeout issues
   - Failure patterns across builds

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-Analyze a week of CI builds and provide statistics on failures.
-Usage: ./analyze_ci_week.py <latest_build_number>
-Example: ./analyze_ci_week.py 9083
+Analyze CI builds over a time period and provide statistics on failures.
+Usage: ./analyze_ci_week.py <latest_build_number> [days]
+Examples: 
+  ./analyze_ci_week.py 9083          # Analyze last 7 days (default)
+  ./analyze_ci_week.py 9083 14       # Analyze last 14 days
+  ./analyze_ci_week.py 9083 30       # Analyze last 30 days
 """
 
 import sys
@@ -386,9 +389,12 @@ def print_detailed_failures(builds):
 
 def main():
     """Main function."""
-    if len(sys.argv) != 2:
-        print("Usage: ./analyze_ci_week.py <latest_build_number>")
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print("Usage: ./analyze_ci_week.py <latest_build_number> [days]")
         print("Example: ./analyze_ci_week.py 9083")
+        print("         ./analyze_ci_week.py 9083 14  (analyze last 14 days)")
+        print("\nOptional parameters:")
+        print("  days: Number of days to look back (default: 7)")
         sys.exit(1)
 
     try:
@@ -397,8 +403,20 @@ def main():
         print("Error: Build number must be an integer")
         sys.exit(1)
 
-    # Get builds from the past week
-    builds = get_builds_from_week(latest_build, days=7)
+    # Get optional days parameter
+    days = 7  # Default
+    if len(sys.argv) == 3:
+        try:
+            days = int(sys.argv[2])
+            if days < 1:
+                print("Error: Days must be a positive integer")
+                sys.exit(1)
+        except ValueError:
+            print("Error: Days parameter must be an integer")
+            sys.exit(1)
+
+    # Get builds from the specified time period
+    builds = get_builds_from_week(latest_build, days=days)
 
     if not builds:
         print("No builds found to analyze")
