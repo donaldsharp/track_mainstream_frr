@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Analyze CI builds over a time period and provide statistics on failures.
-Usage: ./analyze_ci_week.py <latest_build_number> [days]
+Usage: ./analyze_ci.py <latest_build_number> [days]
 Examples: 
-  ./analyze_ci_week.py 9083          # Analyze last 7 days (default)
-  ./analyze_ci_week.py 9083 14       # Analyze last 14 days
-  ./analyze_ci_week.py 9083 30       # Analyze last 30 days
+  ./analyze_ci.py 9083          # Analyze last 7 days (default)
+  ./analyze_ci.py 9083 14       # Analyze last 14 days
+  ./analyze_ci.py 9083 30       # Analyze last 30 days
 """
 
 import sys
@@ -390,9 +390,9 @@ def print_detailed_failures(builds):
 def main():
     """Main function."""
     if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print("Usage: ./analyze_ci_week.py <latest_build_number> [days]")
-        print("Example: ./analyze_ci_week.py 9083")
-        print("         ./analyze_ci_week.py 9083 14  (analyze last 14 days)")
+        print("Usage: ./analyze_ci.py <latest_build_number> [days]")
+        print("Example: ./analyze_ci.py 9083")
+        print("         ./analyze_ci.py 9083 14  (analyze last 14 days)")
         print("\nOptional parameters:")
         print("  days: Number of days to look back (default: 7)")
         sys.exit(1)

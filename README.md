@@ -5,7 +5,7 @@ Python scripts to download and analyze FRR CI build pages from ci1.netdef.org to
 ## Scripts
 
 1. **`check_ci_build.py`** - Analyze a single CI build
-2. **`analyze_ci_week.py`** - Analyze multiple builds and generate statistics
+2. **`analyze_ci.py`** - Analyze multiple builds and generate statistics
 
 ## Installation
 
@@ -45,29 +45,29 @@ Check a failed build:
 ./check_ci_build.py https://ci1.netdef.org/browse/FRR-FRR-9081
 ```
 
-### Weekly Build Analysis
+### Multi-Build Analysis
 
-Run `analyze_ci_week.py` with a build number and optional time period:
+Run `analyze_ci.py` with a build number and optional time period:
 
 ```bash
-./analyze_ci_week.py <build_number> [days]
+./analyze_ci.py <build_number> [days]
 ```
 
 #### Examples
 
 Analyze the last 7 days (default):
 ```bash
-./analyze_ci_week.py 9083
+./analyze_ci.py 9083
 ```
 
 Analyze the last 14 days:
 ```bash
-./analyze_ci_week.py 9083 14
+./analyze_ci.py 9083 14
 ```
 
 Analyze the last 30 days:
 ```bash
-./analyze_ci_week.py 9083 30
+./analyze_ci.py 9083 30
 ```
 
 This will:
