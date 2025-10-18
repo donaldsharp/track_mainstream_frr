@@ -41,7 +41,7 @@ def get_builds_from_week(latest_build_num, days=7):
     """
     builds = []
     current_num = latest_build_num
-    
+
     print(f"Analyzing builds from {days} days before build #{current_num}...")
     print(f"Fetching reference build #{current_num} to get completion time...")
     print()
@@ -49,11 +49,11 @@ def get_builds_from_week(latest_build_num, days=7):
     # First, fetch the reference build to get its completion date
     reference_url = f"https://ci1.netdef.org/browse/FRR-FRR-{current_num}"
     reference_date = None
-    
+
     try:
         html = download_page_safe(reference_url)
         results = parse_build_status(html, reference_url)
-        
+
         if results["completed_time"]:
             # Parse date like "17 Oct 2025, 1:43:42 PM"
             try:
@@ -69,14 +69,16 @@ def get_builds_from_week(latest_build_num, days=7):
     except Exception as e:
         print(f"Error: Could not fetch reference build #{current_num}: {e}")
         return builds
-    
+
     if not reference_date:
         print("Error: Could not determine reference build completion date")
         return builds
-    
+
     # Calculate cutoff date (days before the reference build)
     cutoff_date = reference_date - timedelta(days=days)
-    print(f"Analyzing builds from {cutoff_date.strftime('%d %b %Y')} to {reference_date.strftime('%d %b %Y')}")
+    print(
+        f"Analyzing builds from {cutoff_date.strftime('%d %b %Y')} to {reference_date.strftime('%d %b %Y')}"
+    )
     print()
 
     # Go back up to 200 builds or until we hit the date cutoff
@@ -189,8 +191,12 @@ def analyze_builds(builds):
         "total": len(builds),
         "successful": 0,
         "failed": 0,
-        "combined_failures": defaultdict(int),  # "job - test_case" -> count (kept for backwards compat)
-        "test_failures": defaultdict(lambda: {"count": 0, "jobs": defaultdict(int)}),  # test_name -> {count, jobs: {job_name: count}}
+        "combined_failures": defaultdict(
+            int
+        ),  # "job - test_case" -> count (kept for backwards compat)
+        "test_failures": defaultdict(
+            lambda: {"count": 0, "jobs": defaultdict(int), "builds": set()}
+        ),  # test_name -> {count, jobs: {job_name: count}, builds: set of build numbers}
         "hung_jobs": defaultdict(int),  # job_name -> count (jobs without test context)
         "error_types": defaultdict(int),  # error pattern -> count
         "builds_by_status": defaultdict(list),  # status -> [build_numbers]
@@ -222,6 +228,7 @@ def analyze_builds(builds):
             # NEW: Group by test name first
             stats["test_failures"][test_case]["count"] += 1
             stats["test_failures"][test_case]["jobs"][job_name] += 1
+            stats["test_failures"][test_case]["builds"].add(build_num)
 
             # Track normalized job name to avoid double-counting
             jobs_with_test_failures_normalized.add(normalize_job_name(job_name))
@@ -248,6 +255,7 @@ def analyze_builds(builds):
             # NEW: Group by test name first
             stats["test_failures"][test_case]["count"] += 1
             stats["test_failures"][test_case]["jobs"][job_name] += 1
+            stats["test_failures"][test_case]["builds"].add(build_num)
 
             # Track normalized job name to avoid double-counting
             jobs_with_test_failures_normalized.add(normalize_job_name(job_name))
@@ -257,9 +265,13 @@ def analyze_builds(builds):
             job_name = job["name"]
             job_normalized = normalize_job_name(job_name)
 
-            # If this job is Unknown status (hung), always track it separately
+            # If this job is Unknown status (hung), track as a test failure type
             if job["status"] == "Unknown":
                 stats["hung_jobs"][job_name] += 1
+                # Also add to test_failures for unified reporting
+                stats["test_failures"]["(Hung/Timeout)"]["count"] += 1
+                stats["test_failures"]["(Hung/Timeout)"]["jobs"][job_name] += 1
+                stats["test_failures"]["(Hung/Timeout)"]["builds"].add(build_num)
             else:
                 # Check if this job matches any job that already has test failures
                 already_tracked = False
@@ -272,10 +284,11 @@ def analyze_builds(builds):
                 if not already_tracked:
                     combined_key = f"{job_name} - (Job Failed)"
                     stats["combined_failures"][combined_key] += 1
-                    
+
                     # NEW: Group by "(Job Failed)" test name
                     stats["test_failures"]["(Job Failed)"]["count"] += 1
                     stats["test_failures"]["(Job Failed)"]["jobs"][job_name] += 1
+                    stats["test_failures"]["(Job Failed)"]["builds"].add(build_num)
 
     return stats
 
@@ -303,7 +316,9 @@ def print_statistics(stats):
 
     # Calculate total failure instances
     if stats["test_failures"]:
-        total_failure_instances = sum(f["count"] for f in stats["test_failures"].values())
+        total_failure_instances = sum(
+            f["count"] for f in stats["test_failures"].values()
+        )
         unique_failures = len(stats["test_failures"])
         print(f"\nTotal Failure Instances: {total_failure_instances}")
         print(f"Unique Test Types:       {unique_failures}")
@@ -322,28 +337,18 @@ def print_statistics(stats):
         )
         for i, (test_name, test_data) in enumerate(sorted_tests[:20], 1):
             count = test_data["count"]
-            percentage = (count / stats["total"]) * 100
-            print(f"\n{i:2d}. {test_name} - {count} failures ({percentage:.1f}%)")
-            
+            num_builds_affected = len(test_data["builds"])
+            percentage = (num_builds_affected / stats["total"]) * 100
+            print(
+                f"\n{i:2d}. {test_name} - {count} failures in {num_builds_affected} builds ({percentage:.1f}%)"
+            )
+
             # Sort jobs by frequency for this test
             sorted_jobs = sorted(
                 test_data["jobs"].items(), key=lambda x: x[1], reverse=True
             )
             for job_name, job_count in sorted_jobs:
                 print(f"    • {job_name} ({job_count}x)")
-
-    # Hung jobs
-    if stats["hung_jobs"]:
-        print("\n" + "=" * 80)
-        print("HUNG/TIMEOUT JOBS")
-        print("=" * 80)
-
-        sorted_hung = sorted(
-            stats["hung_jobs"].items(), key=lambda x: x[1], reverse=True
-        )
-        for job_name, count in sorted_hung[:10]:
-            percentage = (count / stats["total"]) * 100
-            print(f"  • {job_name:50s} - {count:3d} times ({percentage:.1f}%)")
 
     # Error types
     if stats["error_types"]:
@@ -447,7 +452,9 @@ def main():
         print("Example: ./analyze_ci.py 9083")
         print("         ./analyze_ci.py 9083 14  (analyze 14 days before build 9083)")
         print("         ./analyze_ci.py 9059 7   (analyze 7 days before build 9059)")
-        print("\nThe script analyzes builds from N days before the specified build's completion time.")
+        print(
+            "\nThe script analyzes builds from N days before the specified build's completion time."
+        )
         print("\nOptional parameters:")
         print("  days: Number of days to look back from the build (default: 7)")
         sys.exit(1)
