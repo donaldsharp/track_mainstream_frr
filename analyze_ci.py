@@ -333,7 +333,9 @@ def print_statistics(stats):
         print("=" * 80)
 
         sorted_tests = sorted(
-            stats["test_failures"].items(), key=lambda x: x[1]["count"], reverse=True
+            stats["test_failures"].items(),
+            key=lambda x: (len(x[1]["builds"]), x[1]["count"]),
+            reverse=True,
         )
         for i, (test_name, test_data) in enumerate(sorted_tests[:20], 1):
             count = test_data["count"]
