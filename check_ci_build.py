@@ -59,6 +59,7 @@ def parse_build_status(html_content, url):
         'url': url,
         'build_number': None,
         'status': 'Unknown',
+        'completed_time': None,
         'new_failures': [],
         'existing_failures': [],
         'fixed_tests': [],
@@ -125,6 +126,19 @@ def parse_build_status(html_content, url):
     
     # Method 5: If we found test failures during parsing, mark as failed
     # This will be checked after parsing tests
+    
+    # Extract completion time
+    completed_dt = soup.find('dt', class_='completed')
+    if completed_dt:
+        completed_dd = completed_dt.find_next_sibling('dd')
+        if completed_dd:
+            time_elem = completed_dd.find('time')
+            if time_elem:
+                # Get the text content for display (e.g., "17 Oct 2025, 1:43:42 PM")
+                time_text = time_elem.get_text(strip=True)
+                # Remove the "ago" part if present (e.g., "– 18 hours ago")
+                time_text = re.sub(r'\s*–\s*.*$', '', time_text)
+                results['completed_time'] = time_text
     
     # Try to find test statistics - search in all text
     page_text = soup.get_text()
@@ -356,6 +370,8 @@ def print_results(results):
     if results['build_number']:
         print(f"Build:        {results['build_number']}")
     print(f"Status:       {results['status']}")
+    if results['completed_time']:
+        print(f"Completed:    {results['completed_time']}")
     
     if results['total_tests'] > 0:
         print(f"Total Tests:  {results['total_tests']}")
