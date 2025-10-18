@@ -81,11 +81,15 @@ def get_builds_from_week(latest_build_num, days=7):
     )
     print()
 
-    # Go back up to 200 builds or until we hit the date cutoff
-    for i in range(200):
+    # Go back until we hit the date cutoff
+    i = 0
+    while True:
         build_num = current_num - i
         if build_num < 1:
+            print("Reached build #1")
             break
+
+        i += 1
 
         url = f"https://ci1.netdef.org/browse/FRR-FRR-{build_num}"
 
@@ -115,8 +119,8 @@ def get_builds_from_week(latest_build_num, days=7):
             builds.append({"number": build_num, "url": url, "results": results})
 
             # Print progress
-            if (i + 1) % 10 == 0:
-                print(f"Processed {i + 1} builds...")
+            if len(builds) % 10 == 0:
+                print(f"Processed {len(builds)} builds...")
 
         except Exception as e:
             print(f"Warning: Could not fetch build #{build_num}: {e}")
