@@ -51,6 +51,193 @@ def download_page(url):
         sys.exit(1)
 
 
+def fetch_job_log(base_url, job_key):
+    """Fetch the job log to extract detailed error information."""
+    if not job_key:
+        return None
+    
+    base = base_url.rsplit('/browse/', 1)[0]
+    
+    # Try multiple URL patterns for Bamboo logs
+    url_patterns = [
+        f"{base}/browse/{job_key}",
+        f"{base}/viewBuildLog.action?buildKey={job_key}",
+        f"{base}/download/{job_key}/build_logs/",
+    ]
+    
+    for log_url in url_patterns:
+        try:
+            response = requests.get(log_url, timeout=30)
+            response.raise_for_status()
+            return response.text
+        except requests.exceptions.RequestException:
+            continue
+    
+    return None
+
+
+def parse_asan_details(job_log_html, job_name):
+    """Parse AddressSanitizer job logs for memory leak and error details."""
+    if not job_log_html:
+        return None
+    
+    soup = BeautifulSoup(job_log_html, "html.parser")
+    
+    # Look for log content - try multiple methods
+    log_text = ""
+    
+    # Method 1: Look for pre tags containing log output
+    log_pre = soup.find("pre", class_=re.compile(r"log"))
+    if log_pre:
+        log_text = log_pre.get_text()
+    else:
+        # Method 2: Look for any pre tag with substantial content
+        all_pres = soup.find_all("pre")
+        for pre in all_pres:
+            text = pre.get_text()
+            if len(text) > 1000:  # Substantial log content
+                log_text = text
+                break
+    
+    if not log_text:
+        # Method 3: Get all text and search for ASAN patterns
+        log_text = soup.get_text()
+    
+    # Also look for log file links and try to fetch the actual log
+    if "ERROR:" in log_text or "SUMMARY:" in log_text:
+        # We found ASAN content, good
+        pass
+    else:
+        # Try to find a link to the actual log file
+        log_links = soup.find_all("a", href=re.compile(r"\.log$|build_logs"))
+        for link in log_links:
+            href = link.get("href")
+            if href and not href.startswith("http"):
+                # Make it absolute
+                base_url = soup.find("base")
+                if base_url and base_url.get("href"):
+                    href = urljoin(base_url["href"], href)
+            # Could fetch this, but let's skip for now to avoid too many requests
+    
+    details = {
+        "has_issue": False,
+        "error_type": None,
+        "leak_type": None,
+        "test_name": None,
+        "leak_summary": None,
+        "leak_size": None,
+    }
+    
+    # Search for AddressSanitizer error patterns
+    # 1. Memory leaks
+    leak_match = re.search(
+        r"(Direct|Indirect) leak of (\d+) byte[s]? in (\d+) object",
+        log_text,
+        re.IGNORECASE
+    )
+    if leak_match:
+        details["has_issue"] = True
+        details["error_type"] = "memory-leak"
+        details["leak_type"] = leak_match.group(1)
+        details["leak_size"] = f"{leak_match.group(2)} bytes in {leak_match.group(3)} object(s)"
+    
+    # 2. Look for ASAN summary lines
+    summary_match = re.search(
+        r"SUMMARY: AddressSanitizer: ([^\n]+)",
+        log_text,
+        re.IGNORECASE
+    )
+    if summary_match:
+        details["has_issue"] = True
+        summary = summary_match.group(1).strip()
+        
+        # Parse the summary for error type
+        if "leak" in summary.lower():
+            if not details["error_type"]:
+                details["error_type"] = "memory-leak"
+            # Extract byte count if available
+            byte_match = re.search(r"(\d+) byte", summary)
+            if byte_match and not details["leak_size"]:
+                details["leak_size"] = f"{byte_match.group(1)} bytes"
+        elif "heap-buffer-overflow" in summary.lower():
+            details["error_type"] = "heap-buffer-overflow"
+        elif "use-after-free" in summary.lower():
+            details["error_type"] = "use-after-free"
+        elif "stack-buffer-overflow" in summary.lower():
+            details["error_type"] = "stack-buffer-overflow"
+        elif "global-buffer-overflow" in summary.lower():
+            details["error_type"] = "global-buffer-overflow"
+        else:
+            details["error_type"] = summary.split()[0] if summary else "unknown"
+    
+    # 3. Look for ERROR: lines that might have more context
+    error_match = re.search(
+        r"ERROR: AddressSanitizer: ([^\n]+)",
+        log_text,
+        re.IGNORECASE
+    )
+    if error_match and not details["error_type"]:
+        details["has_issue"] = True
+        error_desc = error_match.group(1).strip()
+        details["error_type"] = error_desc
+    
+    # Try to find the test that caused the issue
+    # Look for patterns like "test_bgp_something" or "Running test: test_name"
+    test_patterns = [
+        r"(?:Running test:|Test case:|Testing:)\s+([a-zA-Z0-9_.-]+)",
+        r"===== ([a-zA-Z0-9_.-]+) =====",
+        r"/tests?/[^/]+/([a-zA-Z0-9_.-]+)\.py",
+        r"test[_-]([a-zA-Z0-9_.-]+)",
+        r"^([a-zA-Z0-9_]+)::test",  # pytest format
+    ]
+    
+    # Search backwards from the error/leak to find the test name
+    if details["has_issue"]:
+        # Find the position of the error
+        error_pos = -1
+        for marker in ["leak of", "ERROR:", "SUMMARY:"]:
+            pos = log_text.find(marker)
+            if pos > 0:
+                error_pos = pos
+                break
+        
+        if error_pos > 0:
+            # Look in the 10000 characters before the error
+            context = log_text[max(0, error_pos - 10000):error_pos]
+            for pattern in test_patterns:
+                matches = list(re.finditer(pattern, context, re.IGNORECASE | re.MULTILINE))
+                if matches:
+                    # Get the last match (closest to the error)
+                    test_match = matches[-1]
+                    test_name = test_match.group(1)
+                    # Clean up test name
+                    if test_name:
+                        # Remove common prefixes/suffixes
+                        test_name = re.sub(r'\.pyc?$', '', test_name)
+                        if not test_name.startswith("test"):
+                            test_name = "test_" + test_name
+                        details["test_name"] = test_name
+                        break
+    
+    # Create a summary message
+    if details["has_issue"]:
+        error_type = details["error_type"] or details["leak_type"] or "Unknown issue"
+        
+        if details["error_type"] == "memory-leak":
+            leak_type = details["leak_type"] or "Memory"
+            size = details["leak_size"] or "unknown size"
+            test = details["test_name"] or "unknown test"
+            details["leak_summary"] = f"{leak_type} leak detected ({size}) in {test}"
+        else:
+            test = details["test_name"] or "unknown test"
+            if details["leak_size"]:
+                details["leak_summary"] = f"{error_type} ({details['leak_size']}) in {test}"
+            else:
+                details["leak_summary"] = f"{error_type} in {test}"
+    
+    return details if details["has_issue"] else None
+
+
 def parse_build_status(html_content, url):
     """Parse the HTML and extract build status and failure information."""
     soup = BeautifulSoup(html_content, "html.parser")
@@ -163,6 +350,56 @@ def parse_build_status(html_content, url):
     if quarantine_match:
         results["quarantined_skipped"] = int(quarantine_match.group(1))
 
+    # Look for AddressSanitizer errors in the page text
+    # Bamboo often displays ASAN errors in a visible section
+    page_text = soup.get_text()
+    asan_error_matches = re.finditer(
+        r"Address Sanitizer Error detected in ([^\n]+)",
+        page_text,
+        re.IGNORECASE
+    )
+    
+    asan_errors = []
+    for match in asan_error_matches:
+        error_context = match.group(0)
+        test_path = match.group(1).strip()
+        
+        # Look for additional info near this match
+        # Find the position and look at surrounding text
+        match_pos = page_text.find(match.group(0))
+        if match_pos >= 0:
+            # Get 500 characters after the match for more context
+            context_text = page_text[match_pos:match_pos + 500]
+            
+            # Look for leak/error details
+            leak_count = None
+            leak_match = re.search(r"(\d+)\s+Leaks?\s+triggered", context_text, re.IGNORECASE)
+            if leak_match:
+                leak_count = leak_match.group(1)
+            
+            # Extract test name from path
+            # Format: bfd_vrf_topo1.test_bfd_vrf_topo1/r3.asan.bgpd.27086
+            test_name = None
+            path_match = re.search(r"([a-zA-Z0-9_.-]+)\.test_([a-zA-Z0-9_.-]+)", test_path)
+            if path_match:
+                suite = path_match.group(1)
+                test = path_match.group(2)
+                test_name = f"{suite}.test_{test}"
+            else:
+                # Try simpler pattern
+                test_match = re.search(r"([a-zA-Z0-9_]+)\.test_([a-zA-Z0-9_]+)", test_path)
+                if test_match:
+                    test_name = f"test_{test_match.group(2)}"
+                else:
+                    test_name = test_path.split('/')[0] if '/' in test_path else test_path
+            
+            asan_errors.append({
+                "test_path": test_path,
+                "test_name": test_name,
+                "leak_count": leak_count,
+                "error_type": "memory-leak" if leak_count else "asan-error",
+            })
+    
     # Parse new test failures - look for the heading and the table
     # Try to find tables containing test information
     all_tables = soup.find_all("table")
@@ -398,6 +635,8 @@ def parse_build_status(html_content, url):
 
             # Try to find hung build message or other error info
             reason = ""
+            asan_details = None
+            
             if job_status == "Unknown":
                 # Look for hung build comments
                 # Search within the page for comments related to this job
@@ -407,7 +646,49 @@ def parse_build_status(html_content, url):
                 else:
                     reason = "Unknown status"
             else:
-                reason = "Job failed"
+                # Check if this is an AddressSanitizer job
+                is_asan = re.search(r"AddressSanitizer|ASAN", job_title, re.IGNORECASE)
+                if is_asan:
+                    # Check if we found ASAN errors for this job in the parsed errors
+                    matching_asan_errors = [e for e in asan_errors if e.get("test_name")]
+                    
+                    if matching_asan_errors:
+                        # Use the parsed ASAN error information
+                        error = matching_asan_errors[0]  # Use first error
+                        asan_details = {
+                            "has_issue": True,
+                            "error_type": "memory-leak" if error.get("leak_count") else "asan-error",
+                            "test_name": error.get("test_name"),
+                            "test_path": error.get("test_path"),
+                            "leak_count": error.get("leak_count"),
+                        }
+                        
+                        if error.get("leak_count"):
+                            leak_text = f"{error['leak_count']} leak(s)"
+                            reason = f"Memory leak detected ({leak_text}) in {error['test_name']}"
+                            asan_details["leak_summary"] = reason
+                        else:
+                            reason = f"AddressSanitizer error in {error['test_name']}"
+                            asan_details["leak_summary"] = reason
+                    else:
+                        # Try to get ASAN details from the main page
+                        asan_details = parse_asan_details(html_content, job_title)
+                        
+                        if not asan_details or not asan_details.get("leak_summary"):
+                            # Fetch the job log to get ASAN details
+                            print(f"  Fetching AddressSanitizer details for {job_title}...")
+                            job_log_html = fetch_job_log(url, job_key)
+                            if job_log_html:
+                                job_asan_details = parse_asan_details(job_log_html, job_title)
+                                if job_asan_details:
+                                    asan_details = job_asan_details
+                        
+                        if asan_details and asan_details.get("leak_summary"):
+                            reason = asan_details["leak_summary"]
+                        else:
+                            reason = "AddressSanitizer detected issue - check job logs for details"
+                else:
+                    reason = "Job failed"
 
             results["failed_jobs"].append(
                 {
@@ -415,6 +696,7 @@ def parse_build_status(html_content, url):
                     "status": job_status,
                     "reason": reason,
                     "key": job_key,
+                    "asan_details": asan_details,
                 }
             )
 
@@ -473,9 +755,40 @@ def print_results(results):
             print(f"FAILED/HUNG JOBS:")
             print(f"{'='*80}")
             for job in results["failed_jobs"]:
-                print(f"  ✗ {job['name']}")
+                # For ASAN jobs with detected errors, create a descriptive header
+                if job.get("asan_details") and job["asan_details"].get("error_type"):
+                    if job["asan_details"]["error_type"] == "memory-leak":
+                        print(f"  Memory leak detected - {job['name']}")
+                    else:
+                        error_type = job["asan_details"]["error_type"].replace("-", " ").title()
+                        print(f"  {error_type} detected - {job['name']}")
+                else:
+                    print(f"  ✗ {job['name']}")
                 print(f"     Status: {job['status']}")
                 print(f"     Reason: {job['reason']}")
+                
+                # Print job URL if available
+                if job.get("key"):
+                    base_url = results["url"].rsplit('/browse/', 1)[0]
+                    job_url = f"{base_url}/browse/{job['key']}"
+                    print(f"     Job URL: {job_url}")
+                
+                # Print additional ASAN details if available
+                if job.get("asan_details"):
+                    asan = job["asan_details"]
+                    if asan.get("error_type"):
+                        print(f"     Error Type: {asan['error_type']}")
+                    if asan.get("leak_type"):
+                        print(f"     Leak Type: {asan['leak_type']} leak")
+                    if asan.get("leak_size"):
+                        print(f"     Leak Size: {asan['leak_size']}")
+                    if asan.get("test_name"):
+                        print(f"     Test: {asan['test_name']}")
+                else:
+                    # For ASAN jobs without detected details, provide guidance
+                    is_asan = re.search(r"AddressSanitizer|ASAN", job['name'], re.IGNORECASE)
+                    if is_asan:
+                        print(f"     Note: Check job logs for memory leak or sanitizer error details")
             print(f"{'='*80}")
 
         # Print summary of failing test cases (both new and existing)
