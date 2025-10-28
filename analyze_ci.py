@@ -268,30 +268,35 @@ def analyze_builds(builds):
         for job in results["failed_jobs"]:
             job_name = job["name"]
             job_normalized = normalize_job_name(job_name)
-            
+
             # Check if this job has ASAN details (memory leaks, etc.)
             if job.get("asan_details"):
                 asan = job["asan_details"]
                 test_name = asan.get("test_name", "(Unknown Test)")
-                
-                # Track as a specific test failure with ASAN context
-                stats["test_failures"][test_name]["count"] += 1
-                stats["test_failures"][test_name]["jobs"][job_name] += 1
-                stats["test_failures"][test_name]["builds"].add(build_num)
-                
-                # Also track in combined_failures for backwards compatibility
-                combined_key = f"{job_name} - {test_name}"
-                stats["combined_failures"][combined_key] += 1
-                
-                # Categorize error type
+
+                # Categorize error type and determine how to track it
                 if asan.get("error_type") == "memory-leak":
+                    # Track memory leaks as a single category
+                    category_name = "(Memory Leak)"
                     stats["error_types"]["Memory Leak (AddressSanitizer)"] += 1
                 elif asan.get("error_type"):
+                    # Track other ASAN errors by their type
                     error_type = asan["error_type"].replace("-", " ").title()
+                    category_name = f"({error_type})"
                     stats["error_types"][f"{error_type} (AddressSanitizer)"] += 1
                 else:
+                    category_name = "(AddressSanitizer Error)"
                     stats["error_types"]["AddressSanitizer Error"] += 1
-                
+
+                # Track as a category in test_failures (for top failures grouping)
+                stats["test_failures"][category_name]["count"] += 1
+                stats["test_failures"][category_name]["jobs"][job_name] += 1
+                stats["test_failures"][category_name]["builds"].add(build_num)
+
+                # Also track in combined_failures with specific test name for detailed view
+                combined_key = f"{job_name} - {test_name}"
+                stats["combined_failures"][combined_key] += 1
+
                 # Mark this job as tracked
                 jobs_with_test_failures_normalized.add(job_normalized)
                 continue
@@ -310,7 +315,7 @@ def analyze_builds(builds):
                 if is_asan:
                     # Don't track ASAN jobs without details in the generic "(Job Failed)" category
                     continue
-                
+
                 # Check if this job matches any job that already has test failures
                 already_tracked = False
                 for tracked_job_normalized in jobs_with_test_failures_normalized:
@@ -379,7 +384,7 @@ def print_statistics(stats):
             count = test_data["count"]
             num_builds_affected = len(test_data["builds"])
             percentage = (num_builds_affected / stats["total"]) * 100
-            
+
             # Show total failures and unique builds affected
             if count == num_builds_affected:
                 # Each build had exactly one failure
@@ -463,7 +468,7 @@ def print_detailed_failures(builds):
             # Only add jobs that don't have test context
             for job in results["failed_jobs"]:
                 job_name = job["name"]
-                
+
                 # Check for ASAN details
                 if job.get("asan_details"):
                     asan = job["asan_details"]
@@ -473,7 +478,9 @@ def print_detailed_failures(builds):
                     failure_signature.append(("hung", job_name))
                 elif job_name not in jobs_with_tests:
                     # Skip AddressSanitizer jobs without details in the failure pattern
-                    is_asan = re.search(r"AddressSanitizer|ASAN", job_name, re.IGNORECASE)
+                    is_asan = re.search(
+                        r"AddressSanitizer|ASAN", job_name, re.IGNORECASE
+                    )
                     if not is_asan:
                         failure_signature.append(("job_only", job_name))
 
