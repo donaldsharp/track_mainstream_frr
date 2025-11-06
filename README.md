@@ -82,6 +82,7 @@ Run `download_test_logs.py` with a Bamboo CI build URL to download TopotestLog a
 #### Options
 
 - `--list-jobs, -l`: List jobs without downloading
+- `--chunk <url>, -c <url>`: Download a specific job by its artifact URL
 - `--help, -h`: Show help message
 
 #### Examples
@@ -94,6 +95,11 @@ Download all test logs from a build:
 List available jobs without downloading:
 ```bash
 ./download_test_logs.py --list-jobs https://ci1.netdef.org/browse/FRR-PULLREQ3-U18I386BUILD-12091
+```
+
+Download a specific job only:
+```bash
+./download_test_logs.py --chunk https://ci1.netdef.org/browse/FRR-PULLREQ3-ASAN6D12AMD64-12091/artifact
 ```
 
 The download_test_logs.py script will:
