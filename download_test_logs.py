@@ -345,24 +345,119 @@ def main():
     # Parse command line arguments
     list_only = False
     build_url = None
+    chunk_url = None
     
-    for arg in sys.argv[1:]:
+    i = 0
+    while i < len(sys.argv[1:]):
+        arg = sys.argv[i + 1]
+        
         if arg in ['--list-jobs', '--list', '-l']:
             list_only = True
+        elif arg in ['--chunk', '-c']:
+            # Next argument should be the chunk URL
+            if i + 1 < len(sys.argv[1:]):
+                chunk_url = sys.argv[i + 2]
+                i += 1  # Skip next argument
+            else:
+                print("Error: --chunk requires a URL argument")
+                sys.exit(1)
         elif arg.startswith('http'):
             build_url = arg
         elif arg in ['--help', '-h']:
             print("Usage: ./download_test_logs.py [options] <build_url>")
             print()
             print("Options:")
-            print("  --list-jobs, -l    List jobs without downloading")
-            print("  --help, -h         Show this help message")
+            print("  --list-jobs, -l           List jobs without downloading")
+            print("  --chunk <url>, -c <url>   Download a specific job by its artifact URL")
+            print("  --help, -h                Show this help message")
             print()
-            print("Example:")
-            print("  ./download_test_logs.py https://ci1.netdef.org/browse/FRR-PULLREQ3-U18I386BUILD-12091")
+            print("Examples:")
+            print("  # Download all Basic Tests from a build")
             print("  ./download_test_logs.py https://ci1.netdef.org/browse/FRR-PULLREQ3-12091")
+            print()
+            print("  # List all jobs without downloading")
             print("  ./download_test_logs.py --list-jobs https://ci1.netdef.org/browse/FRR-PULLREQ3-12091")
+            print()
+            print("  # Download a specific job")
+            print("  ./download_test_logs.py --chunk https://ci1.netdef.org/browse/FRR-PULLREQ3-ASAN6D12AMD64-12091/artifact")
             sys.exit(0)
+        
+        i += 1
+    
+    # Handle chunk mode
+    if chunk_url:
+        if not chunk_url.startswith('http'):
+            print("Error: Invalid chunk URL")
+            sys.exit(1)
+        
+        # Extract job key from chunk URL
+        # Format: https://ci1.netdef.org/browse/JOB-KEY/artifact
+        if '/browse/' not in chunk_url:
+            print("Error: Invalid Bamboo artifact URL")
+            print("Expected format: https://ci1.netdef.org/browse/JOB-KEY/artifact")
+            sys.exit(1)
+        
+        # Extract job key
+        parts = chunk_url.split('/browse/')
+        if len(parts) < 2:
+            print("Error: Could not extract job key from URL")
+            sys.exit(1)
+        
+        job_key = parts[1].rstrip('/').replace('/artifact', '')
+        
+        # Extract build key from job key (remove job suffix to get build)
+        build_key = job_key.rsplit('-', 1)[0]  # Remove build number
+        if '-' in build_key:
+            # Try to extract just the plan and build number
+            # FRR-PULLREQ3-ASAN6D12AMD64-12091 -> FRR-PULLREQ3-12091
+            parts = job_key.split('-')
+            if len(parts) >= 3:
+                # Last part is build number
+                build_number = parts[-1]
+                # First two parts are typically the plan
+                plan_parts = parts[:2]
+                build_key = '-'.join(plan_parts + [build_number])
+        
+        print(f"{'='*80}")
+        print(f"Downloading Single Job Artifacts (--chunk mode)")
+        print(f"{'='*80}")
+        print(f"Job URL: {chunk_url}")
+        print(f"Job Key: {job_key}")
+        print(f"Build Key: {build_key}")
+        
+        # Create output directory
+        output_dir = os.path.join(os.getcwd(), f"logs_{job_key}")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        print(f"Output directory: {output_dir}")
+        
+        # Download artifacts for this specific job
+        # We need to determine the job name from the key
+        # For now, use the job key as the name
+        job_name = job_key.replace('-', ' ')
+        
+        files_downloaded = download_job_artifacts(
+            build_key,
+            job_key,
+            job_name,
+            output_dir
+        )
+        
+        # Summary
+        print(f"\n{'='*80}")
+        print("DOWNLOAD SUMMARY")
+        print(f"{'='*80}")
+        print(f"Job processed:               {job_key}")
+        print(f"Total files downloaded:      {files_downloaded}")
+        print(f"Output directory:            {output_dir}")
+        print(f"{'='*80}")
+        
+        if files_downloaded > 0:
+            print("\n✓ Download complete!")
+        else:
+            print("\n⚠ No files were downloaded.")
+        
+        return
     
     if not build_url:
         print("Error: No build URL provided")
