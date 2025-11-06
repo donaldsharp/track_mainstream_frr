@@ -6,6 +6,7 @@ Python scripts to download and analyze FRR CI build pages from ci1.netdef.org to
 
 1. **`check_ci_build.py`** - Analyze a single CI build
 2. **`analyze_ci.py`** - Analyze multiple builds and generate statistics
+3. **`download_test_logs.py`** - Download test log artifacts from CI builds
 
 ## Installation
 
@@ -70,7 +71,39 @@ Analyze 7 days before build 9059's completion:
 ./analyze_ci.py 9059 7
 ```
 
-This will:
+### Download Test Logs
+
+Run `download_test_logs.py` with a Bamboo CI build URL to download TopotestLog artifacts from all Basic Tests jobs:
+
+```bash
+./download_test_logs.py [options] <build_url>
+```
+
+#### Options
+
+- `--list-jobs, -l`: List jobs without downloading
+- `--help, -h`: Show help message
+
+#### Examples
+
+Download all test logs from a build:
+```bash
+./download_test_logs.py https://ci1.netdef.org/browse/FRR-PULLREQ3-U18I386BUILD-12091
+```
+
+List available jobs without downloading:
+```bash
+./download_test_logs.py --list-jobs https://ci1.netdef.org/browse/FRR-PULLREQ3-U18I386BUILD-12091
+```
+
+The download_test_logs.py script will:
+- Parse the build page to find all Basic Tests jobs
+- For each job, locate the TopotestLog artifacts directory
+- Download all log files recursively, preserving directory structure
+- Organize downloads into a `logs_BUILD-KEY` directory with subdirectories for each job
+- Display progress and summary of downloaded files
+
+The analyze_ci.py script will:
 - Fetch the specified build to determine its completion date
 - Scan backwards from that build
 - Analyze all builds within the specified time period before the reference build (default: 7 days)
@@ -229,4 +262,21 @@ Failures:
 - Identifies failure patterns across multiple builds
 - Shows which builds share the same failure signatures
 - Provides statistical analysis for trend identification
+
+### download_test_logs.py Features
+
+- Downloads TopotestLog artifacts from all Basic Tests jobs in a CI build
+- Automatically discovers and parses the build page structure
+- Supports multiple job types:
+  - AddressSanitizer tests
+  - TopoTests (various platforms and parts)
+  - IPv4/IPv6 Protocol tests
+  - Static Analyzer results
+  - Debian package checks
+- Recursively downloads all files from artifact directories
+- Preserves directory structure in local filesystem
+- Provides real-time download progress with status indicators
+- List-only mode to preview jobs before downloading
+- Organizes downloads by job name for easy navigation
+- Comprehensive error handling and status reporting
 
