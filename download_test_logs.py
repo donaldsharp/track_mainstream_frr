@@ -38,8 +38,15 @@ def download_file(url, output_path):
         return False
 
 
-def download_artifacts_recursive(artifact_url, output_dir, indent=2):
-    """Recursively download artifacts from a directory."""
+def download_artifacts_recursive(artifact_url, output_dir, indent=2, logs_only=False):
+    """Recursively download artifacts from a directory.
+
+    Args:
+        artifact_url: URL to download from
+        output_dir: Local directory to save files
+        indent: Indentation level for progress output
+        logs_only: If True, only download files ending in .log
+    """
     downloaded_count = 0
 
     try:
@@ -110,9 +117,15 @@ def download_artifacts_recursive(artifact_url, output_dir, indent=2):
             os.makedirs(subdir_path, exist_ok=True)
             print(f"{' '*indent}📁 Entering directory: {subdir_name}")
             downloaded_count += download_artifacts_recursive(
-                full_url, subdir_path, indent + 2
+                full_url, subdir_path, indent + 2, logs_only=logs_only
             )
         else:
+            # Check if we should download this file
+            if logs_only and not text.endswith(".log"):
+                # Skip non-log files in logs-only mode
+                print(f"{' '*indent}Skipping: {text} (not a .log file)")
+                continue
+
             # Download file
             output_path = os.path.join(output_dir, text)
             print(f"{' '*indent}Downloading: {text}...", end=" ")
@@ -169,8 +182,16 @@ def extract_plan_key(build_key):
     return build_key
 
 
-def download_job_artifacts(build_key, job_key, job_name, output_dir):
-    """Download TopotestLog-related artifacts for a specific job."""
+def download_job_artifacts(build_key, job_key, job_name, output_dir, logs_only=False):
+    """Download TopotestLog-related artifacts for a specific job.
+
+    Args:
+        build_key: Build key
+        job_key: Job key
+        job_name: Job name
+        output_dir: Output directory
+        logs_only: If True, only download .log files
+    """
     print(f"\n{'='*80}")
     print(f"Job: {job_name}")
     print(f"Key: {job_key}")
@@ -241,7 +262,7 @@ def download_job_artifacts(build_key, job_key, job_name, output_dir):
         os.makedirs(artifact_output_dir, exist_ok=True)
 
         downloaded = download_artifacts_recursive(
-            artifact["url"], artifact_output_dir, indent=4
+            artifact["url"], artifact_output_dir, indent=4, logs_only=logs_only
         )
         total_downloaded += downloaded
 
@@ -363,6 +384,7 @@ def main():
     """Main function."""
     # Parse command line arguments
     list_only = False
+    logs_only = False
     build_url = None
     chunk_url = None
 
@@ -372,6 +394,8 @@ def main():
 
         if arg in ["--list-jobs", "--list", "-l"]:
             list_only = True
+        elif arg == "--logs-only":
+            logs_only = True
         elif arg in ["--chunk", "-c"]:
             # Next argument should be the chunk URL
             if i + 1 < len(sys.argv[1:]):
@@ -390,6 +414,7 @@ def main():
             print(
                 "  --chunk <url>, -c <url>   Download a specific job by its artifact URL"
             )
+            print("  --logs-only               Only download files ending in .log")
             print("  --help, -h                Show this help message")
             print()
             print("Examples:")
@@ -406,6 +431,11 @@ def main():
             print("  # Download a specific job")
             print(
                 "  ./download_test_logs.py --chunk https://ci1.netdef.org/browse/FRR-PULLREQ3-ASAN6D12AMD64-12091/artifact"
+            )
+            print()
+            print("  # Download only .log files")
+            print(
+                "  ./download_test_logs.py --logs-only https://ci1.netdef.org/browse/FRR-PULLREQ3-12091"
             )
             sys.exit(0)
 
@@ -464,7 +494,7 @@ def main():
         job_name = job_key.replace("-", " ")
 
         files_downloaded = download_job_artifacts(
-            build_key, job_key, job_name, output_dir
+            build_key, job_key, job_name, output_dir, logs_only=logs_only
         )
 
         # Summary
@@ -550,7 +580,7 @@ def main():
 
     for job in jobs:
         files_downloaded = download_job_artifacts(
-            build_key, job["key"], job["name"], output_dir
+            build_key, job["key"], job["name"], output_dir, logs_only=logs_only
         )
 
         total_files += files_downloaded
