@@ -1,0 +1,22 @@
+#!/bin/bash
+cd /home/sharpd/frr-coverity
+/usr/bin/git fetch --all --prune
+VERSIONS=`/usr/bin/git status | /usr/bin/grep "Your branch is behind" | /usr/bin/cut -d " " -f 7`
+echo "$VERSIONS"
+if [ "$VERSIONS" == "" ]
+then
+   echo "No change nothing to do"
+   exit 0
+fi
+if [ "$VERSIONS" -gt 15 ]
+then
+    /usr/bin/git pull
+    /usr/bin/git clean -dxf
+    ./bootstrap.sh
+    ./configure --build=x86_64-linux-gnu --prefix=/usr --includedir=\${prefix}/include --mandir=\${prefix}/share/man --infodir=\${prefix}/share/info --sysconfdir=/etc --libexecdir=\${prefix}/lib/frr --enable-exampledir=/usr/share/doc/frr/examples/ --localstatedir=/var/run/frr --sbindir=/usr/lib/frr --sysconfdir=/etc/frr --enable-ospfapi=yes --enable-multipath=128 --enable-user=frr --enable-group=frr --enable-vty-group=frrvty --enable-configfile-mask=0640 --enable-logfile-mask=0640 --enable-rtadv --with-libpam --enable-systemd=yes --enable-cumulus=yes --enable-vtysh=yes --with-vtysh-pager=cat --enable-bgp-vnc=yes --enable-sharpd=yes --enable-realms --enable-dev-build  --enable-snmp --enable-config-rollbacks  --enable-zeromq --enable-fpm  --enable-rpki --enable-bfdd --enable-irdp=yes --enable-protobuf=yes --enable-grpc --enable-scripting --enable-pathd --enable-pim6d CC=gcc
+    /home/sharpd/cov-analysis-linux64-2024.12.1/bin/cov-build --dir cov-int make -j24
+    /usr/bin/tar czvf frr.tgz cov-int
+    /usr/bin/curl --form token=<GET TOKEN FROM https://scan.coverity.com/projects/freerangerouting-frr/builds/new>   --form email=<PUT YOUR EMAIL ADDRESS USED ON COVERITY>   --form file=@/home/sharpd/frr-coverity/frr.tgz   --form version="master build"   --form description="master" https://scan.coverity.com/builds?project=freerangerouting%2Ffrr
+else
+    echo "Not enough Delta, nothing to do"
+fi
