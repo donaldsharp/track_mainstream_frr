@@ -45,6 +45,23 @@ def run_pytest(args, parallel=None):
         return 1
 
 
+def stop_stress_process(stress_process):
+    """Stop the stress process if it's running"""
+    if stress_process is not None:
+        try:
+            print(f"Stopping stress process (PID {stress_process.pid})...")
+            stress_process.terminate()
+            try:
+                stress_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("Stress process didn't terminate, killing it...")
+                stress_process.kill()
+                stress_process.wait()
+            print("Stress process stopped")
+        except Exception as e:
+            print(f"Error stopping stress process: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run topotests in a loop until a test fails",
@@ -65,6 +82,9 @@ Examples:
 
   # Run single-threaded (no parallelism)
   python3 tools/run_topotests_loop.py --parallel 1 ospf-topo1/
+
+  # Run with CPU stress testing (4 workers)
+  python3 tools/run_topotests_loop.py --stress 4 ospf-topo1/
         """,
     )
 
@@ -90,6 +110,13 @@ Examples:
         help="Number of parallel workers for pytest (0=auto, 1=single-threaded, N=workers). Default: auto-detect",
     )
 
+    parser.add_argument(
+        "--stress",
+        type=int,
+        default=None,
+        help="Run 'stress -c X' in the background during tests (X=number of CPU workers)",
+    )
+
     # Parse known args to get our script's arguments
     args, pytest_args = parser.parse_known_args()
 
@@ -97,6 +124,30 @@ Examples:
     if not os.path.exists("tests/topotests"):
         print("Error: This script must be run from the FRR root directory")
         sys.exit(1)
+
+    # Start stress process if requested
+    stress_process = None
+    if args.stress is not None:
+        if args.stress <= 0:
+            print("Error: --stress value must be a positive integer")
+            sys.exit(1)
+        try:
+            stress_cmd = ["stress", "-c", str(args.stress)]
+            print(f"Starting stress process: {' '.join(stress_cmd)}")
+            stress_process = subprocess.Popen(
+                stress_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"Stress process started with PID {stress_process.pid}")
+        except FileNotFoundError:
+            print("Error: 'stress' command not found. Please install stress package.")
+            print("  Ubuntu/Debian: sudo apt-get install stress")
+            print("  Fedora/RHEL: sudo dnf install stress")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error starting stress process: {e}")
+            sys.exit(1)
 
     # Setup logging
     if args.log_file:
@@ -116,6 +167,8 @@ Examples:
                 else f"{args.parallel} workers"
             )
             log_file.write(f"# Parallel: {parallel_desc}\n")
+        if args.stress is not None:
+            log_file.write(f"# Stress: {args.stress} CPU workers\n")
         log_file.write("\n")
 
     run_count = 0
@@ -134,6 +187,8 @@ Examples:
             else f"{args.parallel} workers"
         )
         print(f"Parallel: {parallel_desc}")
+    if args.stress is not None:
+        print(f"Stress: {args.stress} CPU workers (PID {stress_process.pid})")
     print(f"Log file: {args.log_file if args.log_file else 'none'}")
     print("-" * 60)
 
@@ -183,6 +238,7 @@ Examples:
                     log_file.write(f"Exit code: {exit_code}\n")
                     log_file.close()
 
+                stop_stress_process(stress_process)
                 sys.exit(exit_code)
 
             # Check if we've reached max runs
@@ -204,6 +260,7 @@ Examples:
                     )
                     log_file.close()
 
+                stop_stress_process(stress_process)
                 sys.exit(0)
 
             # Wait before next run
@@ -221,6 +278,7 @@ Examples:
             log_file.write(f"Total time: {total_duration:.2f}s\n")
             log_file.close()
 
+        stop_stress_process(stress_process)
         sys.exit(130)
 
     except Exception as e:
@@ -228,6 +286,7 @@ Examples:
         if args.log_file:
             log_file.write(f"\nUnexpected error: {e}\n")
             log_file.close()
+        stop_stress_process(stress_process)
         sys.exit(1)
 
 
