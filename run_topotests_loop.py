@@ -85,6 +85,9 @@ Examples:
 
   # Run with CPU stress testing (4 workers)
   python3 tools/run_topotests_loop.py --stress 4 ospf-topo1/
+
+  # Exit immediately on first test failure
+  python3 tools/run_topotests_loop.py --exitfirst ospf-topo1/
         """,
     )
 
@@ -117,8 +120,19 @@ Examples:
         help="Run 'stress -c X' in the background during tests (X=number of CPU workers)",
     )
 
+    parser.add_argument(
+        "--exitfirst",
+        "-x",
+        action="store_true",
+        help="Exit instantly on first error or failed test (passes -x to pytest)",
+    )
+
     # Parse known args to get our script's arguments
     args, pytest_args = parser.parse_known_args()
+
+    # Add exitfirst flag to pytest args if requested
+    if args.exitfirst:
+        pytest_args.insert(0, "-x")
 
     # Check if we're in the right directory
     if not os.path.exists("tests/topotests"):
@@ -169,6 +183,8 @@ Examples:
             log_file.write(f"# Parallel: {parallel_desc}\n")
         if args.stress is not None:
             log_file.write(f"# Stress: {args.stress} CPU workers\n")
+        if args.exitfirst:
+            log_file.write("# Exit on first failure: enabled\n")
         log_file.write("\n")
 
     run_count = 0
@@ -189,6 +205,8 @@ Examples:
         print(f"Parallel: {parallel_desc}")
     if args.stress is not None:
         print(f"Stress: {args.stress} CPU workers (PID {stress_process.pid})")
+    if args.exitfirst:
+        print("Exit on first failure: enabled")
     print(f"Log file: {args.log_file if args.log_file else 'none'}")
     print("-" * 60)
 
