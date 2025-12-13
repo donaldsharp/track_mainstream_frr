@@ -7,6 +7,7 @@ Python scripts to download and analyze FRR CI build pages from ci1.netdef.org to
 1. **`check_ci_build.py`** - Analyze a single CI build
 2. **`analyze_ci.py`** - Analyze multiple builds and generate statistics
 3. **`download_test_logs.py`** - Download test log artifacts from CI builds
+4. **`run_topotests_loop.py`** - Run topotests in a loop until failure (for reliability testing)
 
 ## Installation
 
@@ -114,6 +115,68 @@ The download_test_logs.py script will:
 - Download all log files recursively, preserving directory structure
 - Organize downloads into a `logs_BUILD-KEY` directory with subdirectories for each job
 - Display progress and summary of downloaded files
+
+### Run Topotests in Loop
+
+Run `run_topotests_loop.py` to repeatedly execute topotests until a failure is detected. This is useful for catching intermittent failures and testing reliability.
+
+**Note:** This script must be run from the FRR root directory.
+
+```bash
+./run_topotests_loop.py [options] [pytest_args...]
+```
+
+#### Options
+
+- `--max-runs N`: Maximum number of runs (0 = unlimited, default: 0)
+- `--delay SECONDS`: Delay between runs in seconds (default: 1.0)
+- `--log-file FILE`: Log file to save run information
+- `--parallel N`: Number of parallel workers (0=auto, 1=single-threaded, N=workers)
+- `--stress N`: Run CPU stress testing with N workers in the background
+- `--exitfirst, -x`: Exit instantly on first error or failed test (passes `-x` to pytest)
+- Additional pytest options can be passed through (e.g., `-v`, `-s`, test paths)
+
+#### Examples
+
+Run a specific test until it fails:
+```bash
+./run_topotests_loop.py ospf-topo1/
+```
+
+Run with 4 parallel workers and verbose output:
+```bash
+./run_topotests_loop.py --parallel 4 -v ospf-topo1/
+```
+
+Run with maximum 100 iterations:
+```bash
+./run_topotests_loop.py --max-runs 100 bgp-topo1/
+```
+
+Run with CPU stress testing (4 workers) to simulate load:
+```bash
+./run_topotests_loop.py --stress 4 ospf-topo1/
+```
+
+Exit immediately on first test failure within each run:
+```bash
+./run_topotests_loop.py --exitfirst ospf-topo1/
+```
+
+Run single-threaded with logging:
+```bash
+./run_topotests_loop.py --parallel 1 --log-file test.log bgp-topo1/
+```
+
+The run_topotests_loop.py script will:
+- Run topotests repeatedly until a failure is detected
+- Support parallel test execution for faster runs
+- Log run statistics including duration and exit codes
+- Optionally run CPU stress testing in the background to simulate system load
+- Display summary statistics on failure (total time, average time per run, etc.)
+- Stop immediately when a test fails and report which run failed
+- Support custom delays between test runs
+- Allow limiting the maximum number of runs
 
 The analyze_ci.py script will:
 - Fetch the specified build to determine its completion date
@@ -291,4 +354,26 @@ Failures:
 - List-only mode to preview jobs before downloading
 - Organizes downloads by job name for easy navigation
 - Comprehensive error handling and status reporting
+
+### run_topotests_loop.py Features
+
+- Runs topotests repeatedly until a failure occurs
+- Parallel test execution support:
+  - Auto-detection mode for optimal parallelism
+  - Single-threaded mode for debugging
+  - Custom worker count (2, 4, 8, etc.)
+- CPU stress testing capability to simulate system load conditions
+- Exit-first mode to stop on first test failure within each run
+- Configurable delay between test runs
+- Maximum run limit to cap testing iterations
+- Detailed logging to file with run statistics
+- Real-time progress reporting with timestamps
+- Summary statistics on failure:
+  - Total runtime
+  - Average time per run
+  - Run number where failure occurred
+- Graceful interrupt handling (Ctrl+C)
+- Must be run from FRR root directory
+- Automatically runs tests in `tests/topotests` directory
+- Uses `--dist=loadfile` for optimal topotest distribution
 
