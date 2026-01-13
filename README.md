@@ -8,6 +8,7 @@ Python scripts to download and analyze FRR CI build pages from ci1.netdef.org to
 2. **`analyze_ci.py`** - Analyze multiple builds and generate statistics
 3. **`download_test_logs.py`** - Download test log artifacts from CI builds
 4. **`run_topotests_loop.py`** - Run topotests in a loop until failure (for reliability testing)
+5. **`analyze_merge_commits.py`** - Analyze merge commits and count merges per author
 
 ## Installation
 
@@ -177,6 +178,49 @@ The run_topotests_loop.py script will:
 - Stop immediately when a test fails and report which run failed
 - Support custom delays between test runs
 - Allow limiting the maximum number of runs
+
+### Analyze Merge Commits
+
+Run `analyze_merge_commits.py` to analyze merge commits in the repository and count how many merges each person has performed.
+
+```bash
+./analyze_merge_commits.py --since <date_or_period>
+```
+
+#### Options
+
+- `--since DATE`: Show commits since this date (required) - accepts dates like "2026-01-01", "7 days ago", "2 weeks ago", "1 month ago"
+- `--details`: Show detailed information about each merge commit
+
+#### Examples
+
+Analyze merges from a specific date:
+```bash
+./analyze_merge_commits.py --since "2026-01-01"
+```
+
+Analyze merges from the last 7 days:
+```bash
+./analyze_merge_commits.py --since "7 days ago"
+```
+
+Analyze merges from the last 2 weeks with details:
+```bash
+./analyze_merge_commits.py --since "2 weeks ago" --details
+```
+
+Analyze merges from the last month:
+```bash
+./analyze_merge_commits.py --since "1 month ago"
+```
+
+The analyze_merge_commits.py script will:
+- Parse git log to find all merge commits in the specified time period
+- Count how many times each author has merged code
+- Display results sorted by merge count (highest to lowest)
+- Show total merge count and number of unique mergers
+- Optionally display detailed information about each merge commit
+- Support flexible date formats (absolute dates or relative periods)
 
 The analyze_ci.py script will:
 - Fetch the specified build to determine its completion date
@@ -377,3 +421,21 @@ Failures:
 - Automatically runs tests in `tests/topotests` directory
 - Uses `--dist=loadfile` for optimal topotest distribution
 
+### analyze_merge_commits.py Features
+
+- Analyzes merge commits from git history
+- Flexible date filtering with `--since` parameter:
+  - Absolute dates (e.g., "2026-01-01")
+  - Relative periods (e.g., "7 days ago", "2 weeks ago", "1 month ago")
+- Counts merges per author
+- Displays results in a sorted table format:
+  - Authors listed by merge count (highest first)
+  - Total merge count across all authors
+  - Number of unique mergers
+- Optional detailed view with `--details` flag showing:
+  - Commit hash
+  - Author name and email
+  - Commit date
+  - Merge commit subject/message
+- Works with any git repository
+- Clean, formatted output for easy reading
