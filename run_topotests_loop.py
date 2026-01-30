@@ -62,6 +62,50 @@ def stop_stress_process(stress_process):
             print(f"Error stopping stress process: {e}")
 
 
+def start_parallel_route_installation(nexthop):
+    """Start parallel route installation via vtysh"""
+    install_cmd = (
+        f"sharp install routes 10.0.0.0 nexthop {nexthop} 1000000 "
+        "table 9000 repeat 1000"
+    )
+    cmd = ["vtysh", "-c", install_cmd]
+    print(f"Starting parallel route installation: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, check=False)
+    except Exception as e:
+        print(f"Error starting parallel route installation: {e}")
+        return False
+
+    if result.returncode != 0:
+        print(
+            "Error: parallel route installation command failed with exit code "
+            f"{result.returncode}"
+        )
+        return False
+
+    return True
+
+
+def stop_parallel_route_installation():
+    """Stop parallel route installation via vtysh"""
+    cmd = ["vtysh", "-c", "sharp install stop"]
+    print("Stopping parallel route installation...")
+    try:
+        result = subprocess.run(cmd, check=False)
+    except Exception as e:
+        print(f"Error stopping parallel route installation: {e}")
+        return False
+
+    if result.returncode != 0:
+        print(
+            "Error: parallel route installation stop failed with exit code "
+            f"{result.returncode}"
+        )
+        return False
+
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run topotests in a loop until a test fails",
@@ -85,6 +129,9 @@ Examples:
 
   # Run with CPU stress testing (4 workers)
   python3 tools/run_topotests_loop.py --stress 4 ospf-topo1/
+
+  # Run with parallel route installation during tests
+  python3 tools/run_topotests_loop.py --parallel-route-installation 192.0.2.1 ospf-topo1/
 
   # Exit immediately on first test failure
   python3 tools/run_topotests_loop.py --exitfirst ospf-topo1/
@@ -118,6 +165,16 @@ Examples:
         type=int,
         default=None,
         help="Run 'stress -c X' in the background during tests (X=number of CPU workers)",
+    )
+
+    parser.add_argument(
+        "--parallel-route-installation",
+        metavar="A.B.C.D",
+        default=None,
+        help=(
+            "Run 'vtysh -c \"sharp install routes 10.0.0.0 nexthop A.B.C.D "
+            "1000000 table 9000 repeat 1000\"' before tests"
+        ),
     )
 
     parser.add_argument(
@@ -163,6 +220,13 @@ Examples:
             print(f"Error starting stress process: {e}")
             sys.exit(1)
 
+    parallel_route_installation_started = False
+    if args.parallel_route_installation is not None:
+        if not start_parallel_route_installation(args.parallel_route_installation):
+            stop_stress_process(stress_process)
+            sys.exit(1)
+        parallel_route_installation_started = True
+
     # Setup logging
     if args.log_file:
         log_file = open(args.log_file, "w")
@@ -183,6 +247,11 @@ Examples:
             log_file.write(f"# Parallel: {parallel_desc}\n")
         if args.stress is not None:
             log_file.write(f"# Stress: {args.stress} CPU workers\n")
+        if args.parallel_route_installation is not None:
+            log_file.write(
+                "# Parallel route installation nexthop: "
+                f"{args.parallel_route_installation}\n"
+            )
         if args.exitfirst:
             log_file.write("# Exit on first failure: enabled\n")
         log_file.write("\n")
@@ -205,6 +274,11 @@ Examples:
         print(f"Parallel: {parallel_desc}")
     if args.stress is not None:
         print(f"Stress: {args.stress} CPU workers (PID {stress_process.pid})")
+    if args.parallel_route_installation is not None:
+        print(
+            "Parallel route installation nexthop: "
+            f"{args.parallel_route_installation}"
+        )
     if args.exitfirst:
         print("Exit on first failure: enabled")
     print(f"Log file: {args.log_file if args.log_file else 'none'}")
@@ -256,6 +330,8 @@ Examples:
                     log_file.write(f"Exit code: {exit_code}\n")
                     log_file.close()
 
+                if parallel_route_installation_started:
+                    stop_parallel_route_installation()
                 stop_stress_process(stress_process)
                 sys.exit(exit_code)
 
@@ -278,6 +354,8 @@ Examples:
                     )
                     log_file.close()
 
+                if parallel_route_installation_started:
+                    stop_parallel_route_installation()
                 stop_stress_process(stress_process)
                 sys.exit(0)
 
@@ -296,6 +374,8 @@ Examples:
             log_file.write(f"Total time: {total_duration:.2f}s\n")
             log_file.close()
 
+        if parallel_route_installation_started:
+            stop_parallel_route_installation()
         stop_stress_process(stress_process)
         sys.exit(130)
 
@@ -304,6 +384,8 @@ Examples:
         if args.log_file:
             log_file.write(f"\nUnexpected error: {e}\n")
             log_file.close()
+        if parallel_route_installation_started:
+            stop_parallel_route_installation()
         stop_stress_process(stress_process)
         sys.exit(1)
 

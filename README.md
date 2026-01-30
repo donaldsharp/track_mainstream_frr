@@ -134,6 +134,7 @@ Run `run_topotests_loop.py` to repeatedly execute topotests until a failure is d
 - `--log-file FILE`: Log file to save run information
 - `--parallel N`: Number of parallel workers (0=auto, 1=single-threaded, N=workers)
 - `--stress N`: Run CPU stress testing with N workers in the background
+- `--parallel-route-installation A.B.C.D`: Install routes in parallel via vtysh with the specified nexthop
 - `--exitfirst, -x`: Exit instantly on first error or failed test (passes `-x` to pytest)
 - Additional pytest options can be passed through (e.g., `-v`, `-s`, test paths)
 
@@ -157,6 +158,11 @@ Run with maximum 100 iterations:
 Run with CPU stress testing (4 workers) to simulate load:
 ```bash
 ./run_topotests_loop.py --stress 4 ospf-topo1/
+```
+
+Run with parallel route installation during tests:
+```bash
+./run_topotests_loop.py --parallel-route-installation 192.0.2.1 ospf-topo1/
 ```
 
 Exit immediately on first test failure within each run:
@@ -407,6 +413,7 @@ Failures:
   - Single-threaded mode for debugging
   - Custom worker count (2, 4, 8, etc.)
 - CPU stress testing capability to simulate system load conditions
+- Optional parallel route installation via vtysh during tests
 - Exit-first mode to stop on first test failure within each run
 - Configurable delay between test runs
 - Maximum run limit to cap testing iterations
