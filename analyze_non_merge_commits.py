@@ -66,6 +66,7 @@ KNOWN_COMPANY_NAMES = {
 COMPANY_NAME_ALIASES = {
     'Cumulus Networks': 'NVIDIA',
     'GitHub (noreply)': 'Personal email / unknown company',
+    'Jareds Macbook Pro': 'Nether',
     'Lindem': 'LabN',
     'Lost Things': 'Roderickgibson',
     'NetDEF': 'Open Source Routing',
