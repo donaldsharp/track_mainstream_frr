@@ -190,6 +190,21 @@ def company_for_user(username: str) -> str:
     return USER_COMPANY_MAP.get(username, UNMAPPED_COMPANY)
 
 
+def format_created_pr_ratio(
+    issue_count: int,
+    pr_count: int,
+    created_issue_count: int,
+    created_pr_count: int,
+    merged_pr_count: int,
+) -> str:
+    if created_pr_count == 0:
+        return "N/A"
+
+    numerator = issue_count + pr_count + created_issue_count + merged_pr_count
+    ratio = numerator / created_pr_count
+    return f"{ratio:.2f}"
+
+
 def iter_export_files(directory: Path) -> Iterable[Path]:
     return sorted(path for path in directory.glob("*.json") if path.is_file())
 
@@ -448,6 +463,13 @@ def build_user_rows(items: dict[ItemKey, ItemRecord]) -> list[list[str]]:
             + created_pr_count
             + merged_pr_count
         )
+        ratio = format_created_pr_ratio(
+            issue_count,
+            pr_count,
+            created_issue_count,
+            created_pr_count,
+            merged_pr_count,
+        )
         rows.append(
             [
                 user,
@@ -458,6 +480,7 @@ def build_user_rows(items: dict[ItemKey, ItemRecord]) -> list[list[str]]:
                 str(created_pr_count),
                 str(merged_pr_count),
                 str(total_count),
+                ratio,
             ]
         )
     return rows
@@ -528,6 +551,13 @@ def build_company_rows(items: dict[ItemKey, ItemRecord]) -> list[list[str]]:
             + created_pr_count
             + merged_pr_count
         )
+        ratio = format_created_pr_ratio(
+            issue_count,
+            pr_count,
+            created_issue_count,
+            created_pr_count,
+            merged_pr_count,
+        )
         rows.append(
             [
                 company,
@@ -537,6 +567,7 @@ def build_company_rows(items: dict[ItemKey, ItemRecord]) -> list[list[str]]:
                 str(created_pr_count),
                 str(merged_pr_count),
                 str(total_count),
+                ratio,
             ]
         )
 
@@ -660,6 +691,7 @@ def main() -> int:
                     "PRs Created",
                     "PRs Merged",
                     "Total",
+                    "Activity/PR Created",
                 ],
                 user_rows,
             )
@@ -680,6 +712,7 @@ def main() -> int:
                     "PRs Created",
                     "PRs Merged",
                     "Total",
+                    "Activity/PR Created",
                 ],
                 company_rows,
             )
