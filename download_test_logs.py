@@ -3,24 +3,88 @@
 Download test logs from a Bamboo CI build.
 
 This script downloads the TopotestLog artifacts from all Basic Tests jobs
-in a specified Bamboo build.
+in a specified Bamboo build, or downloads a specific test given its artifact URL.
 
-Usage: ./download_test_logs.py [options] <build_url>
-Example: ./download_test_logs.py https://ci1.netdef.org/browse/FRR-PULLREQ3-U18I386BUILD-12091
+Usage: ./download_test_logs.py [options] <build_url|test_url>
+Examples:
+  ./download_test_logs.py https://ci1.netdef.org/browse/FRR-PULLREQ3-U18I386BUILD-12091
+  ./download_test_logs.py https://ci1.netdef.org/artifact/FRR-FRR/TOPO8D12I386/build-9247/TopotestDetails/mgmt_startup.test_latestart
 """
 
 import sys
 import os
 import re
+import json
 from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
+from http.cookiejar import MozillaCookieJar
+
+
+# Global session object for cookie persistence
+_session = None
+
+
+def get_session():
+    """Get or create the global session object."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+    return _session
+
+
+def load_cookies_from_file(cookie_file):
+    """Load cookies from a Netscape/Mozilla format cookie file or JSON file."""
+    session = get_session()
+    
+    # Try to determine format by file extension or content
+    try:
+        if cookie_file.endswith('.json'):
+            # JSON format (exported from browser extensions like EditThisCookie)
+            with open(cookie_file, 'r') as f:
+                cookies_json = json.load(f)
+                for cookie in cookies_json:
+                    session.cookies.set(
+                        cookie.get('name'),
+                        cookie.get('value'),
+                        domain=cookie.get('domain', ''),
+                        path=cookie.get('path', '/'),
+                    )
+            print(f"✓ Loaded {len(cookies_json)} cookies from JSON file")
+        else:
+            # Try Netscape/Mozilla format
+            cookie_jar = MozillaCookieJar(cookie_file)
+            cookie_jar.load(ignore_discard=True, ignore_expires=True)
+            session.cookies.update(cookie_jar)
+            print(f"✓ Loaded cookies from Netscape format file")
+        return True
+    except Exception as e:
+        print(f"✗ Error loading cookies: {e}")
+        return False
+
+
+def check_anubis_protection(response):
+    """Check if the response is an Anubis protection page."""
+    if response.status_code == 202:
+        # Check for Anubis protection page indicators
+        # The page contains HTML entities, so check for both versions
+        if ("Making sure you" in response.text and "not a bot" in response.text) or \
+           "Anubis" in response.text or \
+           "proof-of-work" in response.text.lower():
+            return True
+    return False
 
 
 def download_file(url, output_path):
     """Download a file from URL to output_path."""
     try:
-        response = requests.get(url, stream=True, timeout=30)
+        session = get_session()
+        response = session.get(url, stream=True, timeout=30)
+        
+        if check_anubis_protection(response):
+            print(f"  ⚠ Anubis protection detected")
+            return False
+        
         response.raise_for_status()
 
         # Create directory if it doesn't exist
@@ -50,9 +114,17 @@ def download_artifacts_recursive(artifact_url, output_dir, indent=2, logs_only=F
     downloaded_count = 0
 
     try:
-        response = requests.get(artifact_url, timeout=30)
+        session = get_session()
+        response = session.get(artifact_url, timeout=30)
         if response.status_code == 404:
             return 0
+        
+        if check_anubis_protection(response):
+            print(f"{' '*indent}✗ Anubis bot protection detected!")
+            print(f"{' '*indent}  Please use --cookies option with browser cookies.")
+            print(f"{' '*indent}  See --help for instructions.")
+            return 0
+        
         response.raise_for_status()
     except Exception as e:
         print(f"{' '*indent}✗ Error accessing {artifact_url}: {e}")
@@ -212,10 +284,17 @@ def download_job_artifacts(build_key, job_key, job_name, output_dir, logs_only=F
     print(f"Checking artifacts at: {job_artifact_list_url}")
 
     try:
-        response = requests.get(job_artifact_list_url, timeout=30)
+        session = get_session()
+        response = session.get(job_artifact_list_url, timeout=30)
         if response.status_code == 404:
             print("  ℹ No artifacts page found for this job")
             return 0
+        
+        if check_anubis_protection(response):
+            print("  ✗ Anubis bot protection detected!")
+            print("    Please use --cookies option with browser cookies.")
+            return 0
+        
         response.raise_for_status()
     except Exception as e:
         print(f"  ✗ Error accessing artifacts page: {e}")
@@ -280,7 +359,14 @@ def download_job_artifacts(build_key, job_key, job_name, output_dir, logs_only=F
 def parse_build_page(build_url):
     """Parse the build page to find all Basic Tests jobs."""
     try:
-        response = requests.get(build_url, timeout=30)
+        session = get_session()
+        response = session.get(build_url, timeout=30)
+        
+        if check_anubis_protection(response):
+            print("✗ Anubis bot protection detected!")
+            print("  Please use --cookies option with browser cookies.")
+            return None, []
+        
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -387,6 +473,8 @@ def main():
     logs_only = False
     build_url = None
     chunk_url = None
+    test_url = None
+    cookie_file = None
 
     i = 0
     while i < len(sys.argv[1:]):
@@ -396,6 +484,14 @@ def main():
             list_only = True
         elif arg == "--logs-only":
             logs_only = True
+        elif arg in ["--cookies", "--cookie-file"]:
+            # Next argument should be the cookie file path
+            if i + 1 < len(sys.argv[1:]):
+                cookie_file = sys.argv[i + 2]
+                i += 1  # Skip next argument
+            else:
+                print("Error: --cookies requires a file path argument")
+                sys.exit(1)
         elif arg in ["--chunk", "-c"]:
             # Next argument should be the chunk URL
             if i + 1 < len(sys.argv[1:]):
@@ -404,18 +500,43 @@ def main():
             else:
                 print("Error: --chunk requires a URL argument")
                 sys.exit(1)
+        elif arg in ["--test", "-t"]:
+            # Next argument should be the test URL
+            if i + 1 < len(sys.argv[1:]):
+                test_url = sys.argv[i + 2]
+                i += 1  # Skip next argument
+            else:
+                print("Error: --test requires a URL argument")
+                sys.exit(1)
         elif arg.startswith("http"):
-            build_url = arg
+            # Auto-detect URL type
+            if "/artifact/" in arg and "/build-" in arg:
+                # This looks like a specific test URL
+                test_url = arg
+            elif "/browse/" in arg:
+                # This looks like a build or chunk URL
+                if "/artifact" in arg:
+                    chunk_url = arg
+                else:
+                    build_url = arg
+            else:
+                build_url = arg
         elif arg in ["--help", "-h"]:
             print("Usage: ./download_test_logs.py [options] <build_url>")
             print()
             print("Options:")
-            print("  --list-jobs, -l           List jobs without downloading")
+            print("  --list-jobs, -l              List jobs without downloading")
             print(
-                "  --chunk <url>, -c <url>   Download a specific job by its artifact URL"
+                "  --chunk <url>, -c <url>      Download a specific job by its artifact URL"
             )
-            print("  --logs-only               Only download files ending in .log")
-            print("  --help, -h                Show this help message")
+            print(
+                "  --test <url>, -t <url>       Download a specific test by its direct artifact URL"
+            )
+            print(
+                "  --cookies <file>             Load cookies from file to bypass bot protection"
+            )
+            print("  --logs-only                  Only download files ending in .log")
+            print("  --help, -h                   Show this help message")
             print()
             print("Examples:")
             print("  # Download all Basic Tests from a build")
@@ -433,13 +554,135 @@ def main():
                 "  ./download_test_logs.py --chunk https://ci1.netdef.org/browse/FRR-PULLREQ3-ASAN6D12AMD64-12091/artifact"
             )
             print()
+            print("  # Download a specific test (auto-detected)")
+            print(
+                "  ./download_test_logs.py https://ci1.netdef.org/artifact/FRR-FRR/TOPO8D12I386/build-9247/TopotestDetails/mgmt_startup.test_latestart"
+            )
+            print()
+            print("  # Download a specific test (explicit)")
+            print(
+                "  ./download_test_logs.py --test https://ci1.netdef.org/artifact/FRR-FRR/TOPO8D12I386/build-9247/TopotestDetails/mgmt_startup.test_latestart"
+            )
+            print()
+            print("  # Download with cookies to bypass bot protection")
+            print(
+                "  ./download_test_logs.py --cookies cookies.json https://ci1.netdef.org/artifact/..."
+            )
+            print()
             print("  # Download only .log files")
             print(
                 "  ./download_test_logs.py --logs-only https://ci1.netdef.org/browse/FRR-PULLREQ3-12091"
             )
+            print()
+            print("Bot Protection:")
+            print("  If you encounter Anubis bot protection, export cookies from your browser:")
+            print("  1. Visit ci1.netdef.org in your browser and complete the challenge")
+            print("  2. Export cookies using a browser extension:")
+            print("     - Chrome/Edge: 'EditThisCookie' or 'Cookie-Editor' (export as JSON)")
+            print("     - Firefox: 'Cookie Quick Manager' or 'cookies.txt' (Netscape format)")
+            print("  3. Use --cookies option with the exported file")
             sys.exit(0)
 
         i += 1
+
+    # Load cookies if provided
+    if cookie_file:
+        if not os.path.exists(cookie_file):
+            print(f"Error: Cookie file not found: {cookie_file}")
+            sys.exit(1)
+        
+        print(f"Loading cookies from: {cookie_file}")
+        if not load_cookies_from_file(cookie_file):
+            print("Warning: Failed to load cookies, continuing without them...")
+        print()
+
+    # Handle test mode (specific test URL)
+    if test_url:
+        if not test_url.startswith("http"):
+            print("Error: Invalid test URL")
+            sys.exit(1)
+
+        # Parse the test URL to extract components
+        # Format: https://ci1.netdef.org/artifact/PLAN-KEY/JOB-NAME/build-NUMBER/ARTIFACT-PATH/TEST-NAME
+        # Example: https://ci1.netdef.org/artifact/FRR-FRR/TOPO8D12I386/build-9247/TopotestDetails/mgmt_startup.test_latestart
+        if "/artifact/" not in test_url:
+            print("Error: Invalid artifact URL")
+            print("Expected format: https://ci1.netdef.org/artifact/PLAN/JOB/build-NUMBER/PATH/TEST")
+            sys.exit(1)
+
+        # Extract artifact path
+        parts = test_url.split("/artifact/")
+        if len(parts) < 2:
+            print("Error: Could not extract artifact path from URL")
+            sys.exit(1)
+
+        artifact_path = parts[1]
+        path_components = artifact_path.split("/")
+
+        if len(path_components) < 3:
+            print("Error: Invalid artifact path format")
+            print("Expected: PLAN/JOB/build-NUMBER/...")
+            sys.exit(1)
+
+        plan_key = path_components[0]
+        job_name = path_components[1]
+        build_part = path_components[2]
+
+        # Extract build number
+        if not build_part.startswith("build-"):
+            print("Error: Invalid build number format")
+            print(f"Expected 'build-NUMBER', got: {build_part}")
+            sys.exit(1)
+
+        build_number = build_part.replace("build-", "")
+
+        # Remaining path is the artifact/test path
+        test_path = "/".join(path_components[3:]) if len(path_components) > 3 else ""
+        test_name = path_components[-1] if len(path_components) > 3 else "artifact"
+
+        print(f"{'='*80}")
+        print(f"Downloading Specific Test Artifacts (--test mode)")
+        print(f"{'='*80}")
+        print(f"Test URL: {test_url}")
+        print(f"Plan: {plan_key}")
+        print(f"Job: {job_name}")
+        print(f"Build: {build_number}")
+        print(f"Test path: {test_path}")
+        print(f"Test name: {test_name}")
+
+        # Create output directory
+        safe_test_name = re.sub(r"[^\w\s.-]", "", test_name).strip()
+        safe_test_name = re.sub(r"[-\s]+", "_", safe_test_name)
+        output_dir = os.path.join(os.getcwd(), f"logs_{plan_key}_{build_number}", job_name, safe_test_name)
+        os.makedirs(output_dir, exist_ok=True)
+
+        print(f"Output directory: {output_dir}")
+
+        # Download the test artifacts recursively
+        print(f"\nDownloading test artifacts...")
+        files_downloaded = download_artifacts_recursive(
+            test_url, output_dir, indent=2, logs_only=logs_only
+        )
+
+        # Summary
+        print(f"\n{'='*80}")
+        print("DOWNLOAD SUMMARY")
+        print(f"{'='*80}")
+        print(f"Test downloaded:             {test_name}")
+        print(f"Total files downloaded:      {files_downloaded}")
+        print(f"Output directory:            {output_dir}")
+        print(f"{'='*80}")
+
+        if files_downloaded > 0:
+            print("\n✓ Download complete!")
+        else:
+            print("\n⚠ No files were downloaded.")
+            print("  This could mean:")
+            print("    - The test directory is empty")
+            print("    - The URL is incorrect")
+            print("    - The artifacts may require authentication")
+
+        return
 
     # Handle chunk mode
     if chunk_url:
