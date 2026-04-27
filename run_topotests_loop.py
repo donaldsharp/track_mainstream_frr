@@ -135,6 +135,9 @@ Examples:
 
   # Exit immediately on first test failure
   python3 tools/run_topotests_loop.py --exitfirst ospf-topo1/
+
+  # Only run tests marked for a specific daemon (pytest -m)
+  python3 tools/run_topotests_loop.py --daemon-to-test bgpd
         """,
     )
 
@@ -184,12 +187,23 @@ Examples:
         help="Exit instantly on first error or failed test (passes -x to pytest)",
     )
 
+    parser.add_argument(
+        "--daemon-to-test",
+        metavar="DAEMON",
+        default=None,
+        help=("Only run topotests that target DAEMON (passes -m DAEMON to pytest)"),
+    )
+
     # Parse known args to get our script's arguments
     args, pytest_args = parser.parse_known_args()
 
     # Add exitfirst flag to pytest args if requested
     if args.exitfirst:
         pytest_args.insert(0, "-x")
+
+    if args.daemon_to_test:
+        pytest_args.insert(0, args.daemon_to_test)
+        pytest_args.insert(0, "-m")
 
     # Check if we're in the right directory
     if not os.path.exists("tests/topotests"):
@@ -206,9 +220,7 @@ Examples:
             stress_cmd = ["stress", "-c", str(args.stress)]
             print(f"Starting stress process: {' '.join(stress_cmd)}")
             stress_process = subprocess.Popen(
-                stress_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stress_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             print(f"Stress process started with PID {stress_process.pid}")
         except FileNotFoundError:
@@ -240,9 +252,11 @@ Examples:
             parallel_desc = (
                 "auto"
                 if args.parallel == 0
-                else "single-threaded"
-                if args.parallel == 1
-                else f"{args.parallel} workers"
+                else (
+                    "single-threaded"
+                    if args.parallel == 1
+                    else f"{args.parallel} workers"
+                )
             )
             log_file.write(f"# Parallel: {parallel_desc}\n")
         if args.stress is not None:
@@ -254,6 +268,8 @@ Examples:
             )
         if args.exitfirst:
             log_file.write("# Exit on first failure: enabled\n")
+        if args.daemon_to_test:
+            log_file.write(f"# Daemon marker filter: -m {args.daemon_to_test}\n")
         log_file.write("\n")
 
     run_count = 0
@@ -267,9 +283,7 @@ Examples:
         parallel_desc = (
             "auto"
             if args.parallel == 0
-            else "single-threaded"
-            if args.parallel == 1
-            else f"{args.parallel} workers"
+            else "single-threaded" if args.parallel == 1 else f"{args.parallel} workers"
         )
         print(f"Parallel: {parallel_desc}")
     if args.stress is not None:
@@ -281,6 +295,8 @@ Examples:
         )
     if args.exitfirst:
         print("Exit on first failure: enabled")
+    if args.daemon_to_test:
+        print(f"Daemon marker filter: -m {args.daemon_to_test}")
     print(f"Log file: {args.log_file if args.log_file else 'none'}")
     print("-" * 60)
 
