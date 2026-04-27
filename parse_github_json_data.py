@@ -98,7 +98,7 @@ USER_COMPANY_MAP = {
     "rzalamena": "Open Source Routing",
     "Pdoijode": "NVIDIA",
     "krishna-samy": "NVIDIA",
-    "gromit1811": "UNKNOWN",
+    "gromit1811": "RUAG",
     "maxime-leroy": "FREE",
     "Manpreet-k0": "NVIDIA",
     "routingrocks": "NVIDIA",
